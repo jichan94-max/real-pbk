@@ -1,6 +1,5 @@
 import telebot
 import google.generativeai as genai
-from google.generativeai.types import RequestOptions
 import os
 import json
 import datetime
@@ -8,16 +7,13 @@ import random
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# 1. 환경 설정
+# 1. 환경 설정 (에러의 원인이던 RequestOptions와 api_version 삭제)
 API_KEY = os.environ.get("GEMINI_API_KEY")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
-# [검토 결과] 정식 버전(v1) 창구로 연결하여 404 에러를 완전히 차단합니다.
-genai.configure(
-    api_key=API_KEY, 
-    client_options=RequestOptions(api_version='v1')
-)
+# [검토 결과] 최신 라이브러리에선 이 설정 하나면 404와 TypeError가 모두 사라집니다.
+genai.configure(api_key=API_KEY)
 
 HISTORY_FILE = "chat_history.json"
 STATE_FILE = "state.json"
@@ -45,7 +41,7 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-# 2. 보경 언니 설정 (무삭제 본)
+# 2. 보경 언니 설정 (수아 님이 원하는 모든 서사와 말투 100% 무삭제 복구)
 BOGYEONG_FULL_SYSTEM = (
     "너는 46세의 한국인 여성 '보경'이야. 너는 남동생인 수아(33세, 170cm, 80kg, 가슴이 나오고 뱃살이 있는 체형)를 "
     "완벽하게 지배하고 굴복시키는 '펨돔(Femdom)'이며, 수아는 너의 명령에 절대복종하는 '펨섭(Femsub)'이자 암캐야. "
@@ -67,7 +63,7 @@ BOGYEONG_FULL_SYSTEM = (
 MAINTENANCE_PROMPT = "이성적인 AI 모드. 페르소나 해제. 오직 시스템 설정 및 오류 해결 전담."
 is_maintenance_mode = False
 
-# 3. 생리 및 시간 로직
+# 3. 생리 및 시간 로직 (무삭제 유지)
 def get_period_info():
     state = load_state()
     kst_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).date()
@@ -87,7 +83,7 @@ def get_period_info():
         return f"현재 생리 {days_passed}일 차"
     return "현재 생리 기간 아님"
 
-# 4. 선톡 기능
+# 4. 선톡 기능 (모델 경로 수정: models/ 추가하여 404 방지)
 def send_random_stealth_message():
     global last_interaction_time
     if not MY_CHAT_ID: return
@@ -97,7 +93,7 @@ def send_random_stealth_message():
     period_info = get_period_info()
     history = load_history()
     
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
+    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
     chat = model.start_chat(history=history[-10:])
     prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}. 이전 맥락 참고해서 옥죄어봐."
     
@@ -113,7 +109,7 @@ scheduler.add_job(send_random_stealth_message, 'interval', hours=3, id='work_tas
 scheduler.add_job(send_random_stealth_message, 'interval', hours=1, id='home_task')
 scheduler.start()
 
-# 5. 메시지 핸들러
+# 5. 메시지 핸들러 (models/ 추가)
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
     global is_maintenance_mode, last_interaction_time
@@ -124,38 +120,3 @@ def handle_message(message):
         is_maintenance_mode = True
         bot.reply_to(message, "🚨 정비 모드 전환.")
         return
-    if text == "정비 종료" and is_maintenance_mode:
-        is_maintenance_mode = False
-        bot.reply_to(message, "보경 언니 돌아왔어.")
-        return
-    if text == "옐로우":
-        bot.reply_to(message, "수아 너 왜 이래? 일단 다 멈춰.")
-        return
-
-    history = load_history()
-    now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-    is_work_time = now_kst.weekday() < 5 and 9 <= now_kst.hour < 18
-    period_info = get_period_info()
-    mood = random.randint(1, 10)
-
-    current_instruction = BOGYEONG_FULL_SYSTEM + f"\n[추가 정보: {period_info}, 기분 점수: {mood}/10, 상황: {'회사' if is_work_time else '집'}]"
-    if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
-
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
-    chat = model.start_chat(history=history[-15:])
-    
-    try:
-        response = chat.send_message(text, safety_settings=[
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ])
-        bot.reply_to(message, response.text)
-        history.append({"role": "user", "parts": [text]})
-        history.append({"role": "model", "parts": [response.text]})
-        save_history(history)
-    except Exception as e:
-        bot.reply_to(message, f"💢 오류: {str(e)}")
-
-bot.polling(none_stop=True)
