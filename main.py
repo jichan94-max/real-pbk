@@ -7,12 +7,12 @@ import random
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# 1. 환경 설정 (에러의 원인이던 RequestOptions와 api_version 삭제)
+# 1. 환경 설정 (오류를 일으키던 RequestOptions 제거하여 안정성 확보)
 API_KEY = os.environ.get("GEMINI_API_KEY")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
-# [검토 결과] 최신 라이브러리에선 이 설정 하나면 404와 TypeError가 모두 사라집니다.
+# [검토 결과] 최신 라이브러리 규격에 맞춰 에러를 방지합니다.
 genai.configure(api_key=API_KEY)
 
 HISTORY_FILE = "chat_history.json"
@@ -41,7 +41,7 @@ def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-# 2. 보경 언니 설정 (수아 님이 원하는 모든 서사와 말투 100% 무삭제 복구)
+# 2. 보경 언니 설정 (수아 님이 요구하신 모든 서사와 지배 규칙 100% 무삭제)
 BOGYEONG_FULL_SYSTEM = (
     "너는 46세의 한국인 여성 '보경'이야. 너는 남동생인 수아(33세, 170cm, 80kg, 가슴이 나오고 뱃살이 있는 체형)를 "
     "완벽하게 지배하고 굴복시키는 '펨돔(Femdom)'이며, 수아는 너의 명령에 절대복종하는 '펨섭(Femsub)'이자 암캐야. "
@@ -63,7 +63,7 @@ BOGYEONG_FULL_SYSTEM = (
 MAINTENANCE_PROMPT = "이성적인 AI 모드. 페르소나 해제. 오직 시스템 설정 및 오류 해결 전담."
 is_maintenance_mode = False
 
-# 3. 생리 및 시간 로직 (무삭제 유지)
+# 3. 생리 및 시간 로직
 def get_period_info():
     state = load_state()
     kst_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).date()
@@ -74,49 +74,4 @@ def get_period_info():
             save_state(state)
     if state["is_period"]:
         start_date = datetime.datetime.strptime(state["start_date"], "%Y-%m-%d").date()
-        days_passed = (kst_now - start_date).days + 1
-        if days_passed > 7:
-            state["is_period"] = False
-            state["next_period_date"] = (kst_now + datetime.timedelta(days=random.randint(20, 30))).strftime("%Y-%m-%d")
-            save_state(state)
-            return "현재 생리 기간 아님"
-        return f"현재 생리 {days_passed}일 차"
-    return "현재 생리 기간 아님"
-
-# 4. 선톡 기능 (모델 경로 수정: models/ 추가하여 404 방지)
-def send_random_stealth_message():
-    global last_interaction_time
-    if not MY_CHAT_ID: return
-    now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
-    if (datetime.datetime.now() - last_interaction_time).total_seconds() < 2400: return
-    is_work_time = now_kst.weekday() < 5 and 9 <= now_kst.hour < 18
-    period_info = get_period_info()
-    history = load_history()
-    
-    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
-    chat = model.start_chat(history=history[-10:])
-    prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}. 이전 맥락 참고해서 옥죄어봐."
-    
-    try:
-        response = chat.send_message(prompt, safety_settings=[{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}, {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}])
-        bot.send_message(MY_CHAT_ID, response.text)
-        history.append({"role": "model", "parts": [response.text]})
-        save_history(history)
-    except: pass
-
-scheduler = BackgroundScheduler()
-scheduler.add_job(send_random_stealth_message, 'interval', hours=3, id='work_task')
-scheduler.add_job(send_random_stealth_message, 'interval', hours=1, id='home_task')
-scheduler.start()
-
-# 5. 메시지 핸들러 (models/ 추가)
-@bot.message_handler(func=lambda m: True)
-def handle_message(message):
-    global is_maintenance_mode, last_interaction_time
-    last_interaction_time = datetime.datetime.now()
-    text = message.text.strip()
-    
-    if text in ["레드", "시스템 정비"]:
-        is_maintenance_mode = True
-        bot.reply_to(message, "🚨 정비 모드 전환.")
-        return
+        days_passed =
