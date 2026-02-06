@@ -95,7 +95,7 @@ def send_random_stealth_message():
     history = load_history()
     
     # [검토 결과] 모델명은 gemini-1.5-flash가 가장 안정적입니다.
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
+    model = genai.GenerativeModel(model_name="gemini-pro", system_instruction=BOGYEONG_FULL_SYSTEM)
     chat = model.start_chat(history=history[-10:])
     prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}. 이전 맥락 참고해서 옥죄어봐."
     
@@ -140,7 +140,7 @@ def handle_message(message):
     if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
 
     # [검토 결과] model_name="gemini-1.5-flash"로 고정합니다.
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
+    model = genai.GenerativeModel(model_name="gemini-pro", system_instruction=current_instruction)
     chat = model.start_chat(history=history[-15:])
     
     try:
