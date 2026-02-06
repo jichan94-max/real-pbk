@@ -1,5 +1,6 @@
 import telebot
 import google.generativeai as genai
+from google.generativeai.types import RequestOptions
 import os
 import json
 import datetime
@@ -7,17 +8,20 @@ import random
 import time
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# 1. 환경 설정 (transport='rest' 삭제하여 경로 오류 차단)
+# 1. 환경 설정
 API_KEY = os.environ.get("GEMINI_API_KEY")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
-# [검토 결과] transport='rest'를 제거해야 404 에러가 발생하지 않습니다.
-genai.configure(api_key=API_KEY)
+# [검토 결과] 정식 버전(v1) 창구로 연결하여 404 에러를 완전히 차단합니다.
+genai.configure(
+    api_key=API_KEY, 
+    client_options=RequestOptions(api_version='v1')
+)
+
 HISTORY_FILE = "chat_history.json"
 STATE_FILE = "state.json"
 bot = telebot.TeleBot(BOT_TOKEN)
-
 last_interaction_time = datetime.datetime.now()
 
 def load_history():
@@ -89,13 +93,11 @@ def send_random_stealth_message():
     if not MY_CHAT_ID: return
     now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
     if (datetime.datetime.now() - last_interaction_time).total_seconds() < 2400: return
-
     is_work_time = now_kst.weekday() < 5 and 9 <= now_kst.hour < 18
     period_info = get_period_info()
     history = load_history()
     
-    # [검토 결과] 모델명은 gemini-1.5-flash가 가장 안정적입니다.
-    model = genai.GenerativeModel(model_name="gemini-pro", system_instruction=BOGYEONG_FULL_SYSTEM)
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
     chat = model.start_chat(history=history[-10:])
     prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}. 이전 맥락 참고해서 옥죄어봐."
     
@@ -139,8 +141,7 @@ def handle_message(message):
     current_instruction = BOGYEONG_FULL_SYSTEM + f"\n[추가 정보: {period_info}, 기분 점수: {mood}/10, 상황: {'회사' if is_work_time else '집'}]"
     if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
 
-    # [검토 결과] model_name="gemini-1.5-flash"로 고정합니다.
-    model = genai.GenerativeModel(model_name="gemini-pro", system_instruction=current_instruction)
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
     chat = model.start_chat(history=history[-15:])
     
     try:
