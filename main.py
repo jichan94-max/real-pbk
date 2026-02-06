@@ -103,7 +103,7 @@ def send_random_message():
     period_info = get_period_info()
     history = load_history()
     try:
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=SYSTEM_PROMPT)
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash-001", system_instruction=SYSTEM_PROMPT)
         chat = model.start_chat(history=history[-10:])
         prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}."
         response = chat.send_message(prompt, safety_settings=get_safety_settings())
@@ -137,7 +137,7 @@ def handle_message(message):
     if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
 
     try:
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash-001", system_instruction=current_instruction)
         chat = model.start_chat(history=history[-15:])
         response = chat.send_message(text, safety_settings=get_safety_settings())
 
