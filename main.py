@@ -97,7 +97,7 @@ def send_random_stealth_message():
     period_info = get_period_info()
     history = load_history()
     
-    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
+    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash-latest", system_instruction=BOGYEONG_FULL_SYSTEM)
     chat = model.start_chat(history=history[-10:])
     prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}. 이전 맥락 참고해서 옥죄어봐."
     
@@ -141,7 +141,7 @@ def handle_message(message):
     current_instruction = BOGYEONG_FULL_SYSTEM + f"\n[추가 정보: {period_info}, 기분 점수: {mood}/10, 상황: {'회사' if is_work_time else '집'}]"
     if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
 
-    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash", system_instruction=current_instruction)
+    model = genai.GenerativeModel(model_name="models/gemini-1.5-flash-latest", system_instruction=current_instruction)
     chat = model.start_chat(history=history[-15:])
     
     try:
