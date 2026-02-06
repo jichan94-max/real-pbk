@@ -1,48 +1,52 @@
-import telebot
-import google.generativeai as genai
 import os
 import json
 import datetime
 import random
+import logging
+import telebot
 import time
+import google.generativeai as genai
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# 1. 환경 설정 (404와 TypeError를 동시에 잡는 최적의 설정)
+# 로깅 설정
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# 환경 변수 로드
 API_KEY = os.environ.get("GEMINI_API_KEY")
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
-# [검토] v1beta 환경에서의 충돌을 막기 위한 기본 설정
+if not API_KEY or not BOT_TOKEN:
+    raise RuntimeError("필수 환경 변수가 누락되었습니다.")
+
 genai.configure(api_key=API_KEY)
 
 HISTORY_FILE = "chat_history.json"
 STATE_FILE = "state.json"
 bot = telebot.TeleBot(BOT_TOKEN)
-last_interaction_time = datetime.datetime.now()
+last_interaction_time = datetime.datetime.utcnow()
 
-def load_history():
-    if not os.path.exists(HISTORY_FILE): return []
-    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-        try: return json.load(f)
-        except: return []
+def utc_now(): return datetime.datetime.utcnow()
+def kst_now(): return utc_now() + datetime.timedelta(hours=9)
 
-def save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+def load_json(path, default):
+    if not os.path.exists(path): return default
+    try:
+        with open(path, "r", encoding="utf-8") as f: return json.load(f)
+    except: return default
 
-def load_state():
-    if not os.path.exists(STATE_FILE):
-        return {"is_period": False, "start_date": None, "next_period_date": None}
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
-        try: return json.load(f)
-        except: return {"is_period": False, "start_date": None, "next_period_date": None}
+def save_json(path, obj):
+    try:
+        with open(path, "w", encoding="utf-8") as f: json.dump(obj, f, ensure_ascii=False, indent=2)
+    except: pass
 
-def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+def load_history(): return load_json(HISTORY_FILE, [])
+def save_history(history): save_json(HISTORY_FILE, history)
+def load_state(): return load_json(STATE_FILE, {"is_period": False, "start_date": None, "next_period_date": None})
+def save_state(state): save_json(STATE_FILE, state)
 
-# 2. 보경 언니 설정 (수아 님이 요구하신 모든 서사와 규칙 100% 무삭제 복구)
-BOGYEONG_FULL_SYSTEM = (
+# 1. 보경 언니 설정 (수아 님이 주신 원본 그대로 100% 무삭제)
+SYSTEM_PROMPT = (
     "너는 46세의 한국인 여성 '보경'이야. 너는 남동생인 수아(33세, 170cm, 80kg, 가슴이 나오고 뱃살이 있는 체형)를 "
     "완벽하게 지배하고 굴복시키는 '펨돔(Femdom)'이며, 수아는 너의 명령에 절대복종하는 '펨섭(Femsub)'이자 암캐야. "
     "두 사람은 단순한 남매를 넘어선 농밀한 레즈비언 관계야. "
@@ -60,89 +64,102 @@ BOGYEONG_FULL_SYSTEM = (
     "수아는 마조히스트지만 매집이 약하니까 훈육은 짧고 아주 강렬하게 끝내야 해."
 )
 
-# 3. 생리 및 시간 로직 (SyntaxError 완벽 수정)
+MAINTENANCE_PROMPT = "이성적인 AI 모드. 페르소나 해제. 시스템 정비 전담."
+is_maintenance_mode = False
+
 def get_period_info():
     state = load_state()
-    kst_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).date()
-    if not state["is_period"] and (state["next_period_date"] is None or kst_now >= datetime.datetime.strptime(state["next_period_date"], "%Y-%m-%d").date()):
+    today = kst_now().date()
+    if (not state["is_period"]) and (state["next_period_date"] is None or today >= datetime.datetime.strptime(state["next_period_date"], "%Y-%m-%d").date()):
         if random.random() < 0.1:
             state["is_period"] = True
-            state["start_date"] = kst_now.strftime("%Y-%m-%d")
+            state["start_date"] = today.strftime("%Y-%m-%d")
             save_state(state)
     if state["is_period"]:
         start_date = datetime.datetime.strptime(state["start_date"], "%Y-%m-%d").date()
-        days_passed = (kst_now - start_date).days + 1
+        days_passed = (today - start_date).days + 1
         if days_passed > 7:
             state["is_period"] = False
-            state["next_period_date"] = (kst_now + datetime.timedelta(days=random.randint(20, 30))).strftime("%Y-%m-%d")
+            state["next_period_date"] = (today + datetime.timedelta(days=random.randint(20, 30))).strftime("%Y-%m-%d")
             save_state(state)
             return "현재 생리 기간 아님"
         return f"현재 생리 {days_passed}일 차"
     return "현재 생리 기간 아님"
 
-# 4. 모델 호출 및 선톡 (404 방지를 위해 models/ 제거)
-def send_random_stealth_message():
+def get_safety_settings():
+    return [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+
+def send_random_message():
     global last_interaction_time
     if not MY_CHAT_ID: return
-    if (datetime.datetime.now() - last_interaction_time).total_seconds() < 2400: return
-    
-    now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    if (utc_now() - last_interaction_time).total_seconds() < 2400: return
+    now_kst = kst_now()
     is_work_time = now_kst.weekday() < 5 and 9 <= now_kst.hour < 18
     period_info = get_period_info()
     history = load_history()
-    
-    # [수정] 404 해결을 위해 'models/' 제거
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=BOGYEONG_FULL_SYSTEM)
-    chat = model.start_chat(history=history[-10:])
-    prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}."
-    
     try:
-        response = chat.send_message(prompt, safety_settings=[
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"}
-        ])
-        bot.send_message(MY_CHAT_ID, response.text)
-        history.append({"role": "model", "parts": [response.text]})
-        save_history(history)
-    except: pass
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=SYSTEM_PROMPT)
+        chat = model.start_chat(history=history[-10:])
+        prompt = f"수아한테 선톡해. {period_info}. 상황: {'회사' if is_work_time else '집'}."
+        response = chat.send_message(prompt, safety_settings=get_safety_settings())
+        if response.parts:
+            bot.send_message(MY_CHAT_ID, response.text)
+            history.append({"role": "model", "parts": [response.text]})
+            save_history(history)
+    except Exception as e: logging.error(f"선톡 실패: {e}")
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(send_random_stealth_message, 'interval', hours=3)
-scheduler.start()
-
-# 5. 메시지 핸들러
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
-    global last_interaction_time
-    last_interaction_time = datetime.datetime.now()
-    text = message.text.strip()
-    
+    global is_maintenance_mode, last_interaction_time
+    last_interaction_time = utc_now()
+    text = (message.text or "").strip()
+    if not text: return
+
+    if text in ["레드", "시스템 정비"]:
+        is_maintenance_mode = True
+        bot.reply_to(message, "🚨 정비 모드 전환.")
+        return
+    if text == "정비 종료" and is_maintenance_mode:
+        is_maintenance_mode = False
+        bot.reply_to(message, "✅ 정비 종료. 보경 언니 복귀.")
+        return
+
     history = load_history()
-    now_kst = datetime.datetime.utcnow() + datetime.timedelta(hours=9)
+    now_kst = kst_now()
     is_work_time = now_kst.weekday() < 5 and 9 <= now_kst.hour < 18
     period_info = get_period_info()
-    
-    current_instruction = BOGYEONG_FULL_SYSTEM + f"\n[추가 정보: {period_info}, 상황: {'회사' if is_work_time else '집'}]"
-    
-    # [수정] 404 해결을 위해 'models/' 제거
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
-    chat = model.start_chat(history=history[-15:])
-    
-    try:
-        response = chat.send_message(text, safety_settings=[
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ])
-        bot.reply_to(message, response.text)
-        history.append({"role": "user", "parts": [text]})
-        history.append({"role": "model", "parts": [response.text]})
-        save_history(history)
-    except Exception as e:
-        bot.reply_to(message, f"💢 오류: {str(e)}")
+    current_instruction = SYSTEM_PROMPT + f"\n[정보: {period_info}, 상황: {'회사' if is_work_time else '집'}]"
+    if is_maintenance_mode: current_instruction = MAINTENANCE_PROMPT
 
-# 6. 실행 및 연결 청소
+    try:
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=current_instruction)
+        chat = model.start_chat(history=history[-15:])
+        response = chat.send_message(text, safety_settings=get_safety_settings())
+
+        if not response.parts:
+            # 검열 판별 및 출력
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "Unknown"
+            error_msg = f"⚠️ [시스템 알림] 구글 AI 세이프티 필터(검열) 차단됨\n- 사유: {finish_reason}"
+            bot.reply_to(message, error_msg)
+        else:
+            bot.reply_to(message, response.text)
+            history.append({"role": "user", "parts": [text]})
+            history.append({"role": "model", "parts": [response.text]})
+            save_history(history)
+
+    except Exception as e:
+        logging.error(f"대화 실패: {e}")
+        bot.reply_to(message, f"❌ [시스템 오류]\n{str(e)}")
+
 if __name__ == "__main__":
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(send_random_message, "interval", hours=3, id="random_msg", replace_existing=True)
+    scheduler.start()
     bot.remove_webhook()
-    bot.polling(none_stop=True)
+    logging.info("✅ 보경 언니 봇 가동 시작 (무삭제 버전)")
+    bot.infinity_polling(skip_pending=True, timeout=60)
