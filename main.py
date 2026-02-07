@@ -80,24 +80,31 @@ def save_json(path, obj):
             logging.error(f"파일 저장 실패({path}): {e}")
 
 def load_persona():
+    # 1) /data/persona.txt 우선 (볼륨)
+    data_persona = PERSONA_FILE
+
+    # 2) 레포 루트(/app) persona.txt (GitHub에 올린 파일)
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    app_persona = os.path.join(app_dir, "persona.txt")
+
     with file_lock:
-        if not os.path.exists(PERSONA_FILE):
-            raise RuntimeError(
-                f"persona.txt가 없습니다: {PERSONA_FILE}\n"
-                "Railway에서 /data/persona.txt 위치에 넣거나(볼륨 사용 시), "
-                "코드가 보는 경로를 맞춰주세요."
-            )
+        for path in (data_persona, app_persona):
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    text = (f.read() or "").strip()
+                if text:
+                    logging.info(f"✅ persona 로드 성공: {path}")
+                    return text
+                else:
+                    raise RuntimeError(f"persona.txt 내용이 비어있습니다: {path}")
 
-        with open(PERSONA_FILE, "r", encoding="utf-8") as f:
-            text = (f.read() or "").strip()
+    raise RuntimeError(
+        f"persona.txt가 없습니다.\n"
+        f"- (볼륨) {data_persona}\n"
+        f"- (레포) {app_persona}\n"
+        f"둘 중 한 곳에 persona.txt를 넣어주세요."
+    )
 
-        if not text:
-            raise RuntimeError(
-                f"persona.txt 내용이 비어있습니다: {PERSONA_FILE}\n"
-                "persona.txt에 내용을 작성해주세요."
-            )
-
-        return text
 
 
 
