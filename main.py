@@ -79,18 +79,27 @@ def save_json(path, obj):
         except Exception as e:
             logging.error(f"파일 저장 실패({path}): {e}")
 
-
 def load_persona():
     with file_lock:
         if not os.path.exists(PERSONA_FILE):
-            # 기본 페르소나
-            return "당신은 친절하고 차분한 어시스턴트입니다."
-        try:
-            with open(PERSONA_FILE, "r", encoding="utf-8") as f:
-                text = (f.read() or "").strip()
-                return text if text else "당신은 친절하고 차분한 어시스턴트입니다."
-        except Exception:
-            return "당신은 친절하고 차분한 어시스턴트입니다."
+            raise RuntimeError(
+                f"persona.txt가 없습니다: {PERSONA_FILE}\n"
+                "Railway에서 /data/persona.txt 위치에 넣거나(볼륨 사용 시), "
+                "코드가 보는 경로를 맞춰주세요."
+            )
+
+        with open(PERSONA_FILE, "r", encoding="utf-8") as f:
+            text = (f.read() or "").strip()
+
+        if not text:
+            raise RuntimeError(
+                f"persona.txt 내용이 비어있습니다: {PERSONA_FILE}\n"
+                "persona.txt에 내용을 작성해주세요."
+            )
+
+        return text
+
+
 
 
 def load_history():
